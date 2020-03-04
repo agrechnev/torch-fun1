@@ -1,0 +1,7 @@
+.idea
+build/
+faces.zip
+data
+__pycache__/
+*.pth.tar
+*.pt
