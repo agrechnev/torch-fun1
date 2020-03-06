@@ -90,6 +90,10 @@ def train(model, device, train_loader, optimizer, epoch):
         loss.backward()
         optimizer.step()
         last_loss = loss.item()
+        # print('loss = ', loss.item())
+        # print('grad = ', model.fc2.weight.grad)
+        # sys.exit(0)
+
         train_loss += last_loss
         if batch_idx % 10 == 0:
             print('*', end='')

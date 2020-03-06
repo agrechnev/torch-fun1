@@ -101,7 +101,7 @@ optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
 print('len(trainloader) =', len(trainloader))
 # Train the network
-for epoch in range(10):
+for epoch in range(1):
     running_loss = 0.0
     for i, data in enumerate(trainloader, 0):
         # Get the inputs
