@@ -5,6 +5,7 @@ import torch.utils.model_zoo as model_zoo
 import torch.nn as nn
 import torch.nn.init as init
 
+import onnx
 
 class SuperResolutionNet(nn.Module):
     def __init__(self, upscale_factor, inplace=False):
@@ -66,3 +67,6 @@ torch.onnx.export(torch_model,               # model being run
                   dynamic_axes={'input' : {0 : 'batch_size'},    # variable lenght axes
                                 'output' : {0 : 'batch_size'}})
 
+onnx_model = onnx.load("super_resolution.onnx")
+print("Model successfully saved and loaded, checking ...")
+onnx.checker.check_model(onnx_model)

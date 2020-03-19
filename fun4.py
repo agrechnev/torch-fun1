@@ -1,5 +1,6 @@
 # By Oleksiy Grechnyev 3/19/20
 
+import onnx
 import torch
 
 torch.manual_seed(0)
@@ -120,3 +121,7 @@ if True:
                       input_names=['input'],  # the model's input names
                       output_names=['output']  # the model's output names
                       )
+
+    onnx_model = onnx.load('fun.onnx')
+    print("Model successfully saved and loaded, checking ...")
+    onnx.checker.check_model(onnx_model)
