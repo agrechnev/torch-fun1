@@ -14,6 +14,7 @@ class BostonSet(torch.utils.data.Dataset):
         self.boston = load_boston()
 
         x0, y0 = self.boston.data, self.boston.target
+
         if mode == 'train':
             x, y = x0[:450], y0[:450]
         elif mode == 'val':
@@ -101,8 +102,22 @@ class Trainer:
             loss_val = loss_sum / i
 
         return loss_val
+
+    def check_for_const(self):
+        self.net.eval()
+        for x, y in self.val_loader:
+            x = x.to(self.device)
+            y = y.numpy()
+            with torch.no_grad():
+                pred = self.net(x).cpu().numpy()
+            print('pred.shape = ', pred.shape)
+            print('pred = ', pred)
+            print('y = ', y)
+
+
 ########################################################################################################################
 
 
 trainer = Trainer()
 trainer.train()
+trainer.check_for_const()
