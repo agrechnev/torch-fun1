@@ -13,7 +13,7 @@ import torchvision
 
 path_img = '/home/seymour/qwerty/pics_olddesk/absolut.jpg'
 batch_size = 8192
-n_epoch = 2000
+n_epoch = 200
 device = 'cuda:0'
 
 
@@ -62,6 +62,26 @@ class Model1(torch.nn.Module):
 
 
 ########################################################################################################################
+class Model2(torch.nn.Module):
+    def __init__(self, nl: int, nf: int):
+        super(Model2, self).__init__()
+        self.mlist = torch.nn.ModuleList()
+        for i in range(nl):
+            n1 = 2 if i == 0 else nf
+            n2 = 3 if i == nl - 1 else nf
+            self.mlist.append(torch.nn.Linear(n1, n2))
+
+    def forward(self, x):
+        for i, m in enumerate(self.mlist):
+            x = m(x)
+            if i == len(self.mlist) - 1:
+                x = torch.sigmoid(x)
+            else:
+                x = torch.relu(x)
+        return x
+
+
+########################################################################################################################
 class Trainer:
     def __init__(self, img_path: str):
         self.dset = ImgDSet(path_img)
@@ -70,7 +90,8 @@ class Trainer:
         self.dloader_test = torch.utils.data.DataLoader(self.dset, batch_size=batch_size, pin_memory=True,
                                                         num_workers=3, shuffle=False)
         print(f'len_dset = {len(self.dset)}, len_loader = {len(self.dloader_train)}')
-        self.model = Model1().to(device=device)
+        self.model = Model2(5, 20).to(device=device)
+        print(self.model)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         self.criterion = torch.nn.MSELoss()
 
