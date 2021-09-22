@@ -90,7 +90,7 @@ class Trainer:
         self.dloader_test = torch.utils.data.DataLoader(self.dset, batch_size=batch_size, pin_memory=True,
                                                         num_workers=3, shuffle=False)
         print(f'len_dset = {len(self.dset)}, len_loader = {len(self.dloader_train)}')
-        self.model = Model2(5, 20).to(device=device)
+        self.model = Model2(10, 50).to(device=device)
         print(self.model)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         self.criterion = torch.nn.MSELoss()
