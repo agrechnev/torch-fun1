@@ -1,5 +1,5 @@
 # By IT-JIM, 2021
-# Here Pytorch will learn FFT: should be trivial
+# Here Pytorch will learn inverse FFT: should be trivial
 
 import sys
 import numpy as np
