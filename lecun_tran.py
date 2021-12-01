@@ -12,7 +12,13 @@ import torchtext
 
 ########################################################################################################################
 def print_it(a, name: str = ''):
-    print(name, a.shape, a.dtype, a.min(), a.mean(), a.max())
+    if isinstance(a, torch.Tensor):
+        m = a.to(dtype=torch.float32).mean()
+    else:
+        m = a.mean()
+
+    print(name, a.shape, a.dtype, a.min(), m, a.max())
+
 
 
 ########################################################################################################################
@@ -124,6 +130,7 @@ def main_stupid2():
 
 ########################################################################################################################
 def main_stupid3():
+    """We use legacy stuff, like in the notebook"""
     import torchtext.legacy.data as data
     import torchtext.legacy.datasets as datasets
     max_len = 200
@@ -131,9 +138,29 @@ def main_stupid3():
     label = data.LabelField(sequential=False, dtype=torch.long)
     # datasets.IMDB.download('/home/seymour/data')
     ds_train, ds_test = datasets.IMDB.splits(text, label, path='/home/seymour/data/IMDB/aclImdb')
-    print('ds_train', len(ds_train))
-    print('ds_test', len(ds_test))
-
+    # print('ds_train', len(ds_train))
+    # print('ds_test', len(ds_test))
+    print('train.fields :', ds_train.fields)
+    ds_train, ds_valid = ds_train.split(0.9)
+    print('train : ', len(ds_train))
+    print('valid : ', len(ds_valid))
+    print('test : ', len(ds_test))
+    num_words = 50000
+    text.build_vocab(ds_train, max_size=num_words)
+    label.build_vocab(ds_train)
+    vocab = text.vocab
+    batch_size = 164
+    train_loader, valid_loader, test_loader = data.BucketIterator.splits((ds_train, ds_valid, ds_test),
+                                                                         batch_size=batch_size,
+                                                                         sort_key=lambda x: len(x.text), repeat=False)
+    if False:
+        batch = next(iter(train_loader))
+        print('batch:', type(batch), len(batch))
+        x = batch.text
+        y = batch.label
+        print_it(x, 'x')    # [164, 200]
+        print_it(y, 'y')    # [164]
+        print(y)
 
 
 ########################################################################################################################
