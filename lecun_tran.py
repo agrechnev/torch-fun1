@@ -9,6 +9,8 @@ import torch
 import torch.utils.data
 import torchtext
 
+DEVICE = torch.device('cuda')
+
 
 ########################################################################################################################
 def print_it(a, name: str = ''):
@@ -20,10 +22,9 @@ def print_it(a, name: str = ''):
     print(name, a.shape, a.dtype, a.min(), m, a.max())
 
 
-
 ########################################################################################################################
 class MultiHeadAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, p=0, d_input=None):
+    def __init__(self, d_model, num_heads, p, d_input=None):
         super(MultiHeadAttention, self).__init__()
         self.num_heads = num_heads
         self.d_model = d_model
@@ -85,6 +86,101 @@ class MultiHeadAttention(torch.nn.Module):
 
 
 ########################################################################################################################
+class CNN(torch.nn.Module):
+    """A simple MLP d_model -> d_model"""
+    def __init__(self, d_model, hidden_dim, p):
+        super(CNN, self).__init__()
+        self.l1 = torch.nn.Linear(d_model, hidden_dim)
+        self.l2 = torch.nn.Linear(hidden_dim, d_model)
+        self.a = torch.nn.ReLU()
+
+    def forward(self, x):
+        x = self.l1(x)
+        x = self.a(x)
+        x = self.l2(x)
+        return x
+
+
+########################################################################################################################
+class Embeddings(torch.nn.Module):
+    """Returns learnable word emb + positional emb, of size d_model"""
+    def __init__(self, d_model, vocab_size, max_position_embeddings, p):
+        super().__init__()
+        self.word_embeddings = torch.nn.Embedding(vocab_size, d_model, padding_idx=1)
+        self.position_embeddings = torch.nn.Embedding(max_position_embeddings, d_model)
+        self.layer_norm = torch.nn.LayerNorm(d_model, eps=1.e-12)
+        self.create_posemb(d_model, max_position_embeddings)
+
+    def create_posemb(self, d_model, max_position_embeddings):
+        theta = np.array([
+            [p / np.power(10000, 2 * (j // 2) / d_model) for j in range(d_model)]
+            for p in range(max_position_embeddings)
+        ])  # (max_position_embeddings, d_model)
+        pp = torch.zeros(max_position_embeddings, d_model, dtype=torch.float32)
+        pp[:, 0::2] = torch.tensor(np.sin(theta[:, 0::2]), dtype=torch.float32)
+        pp[:, 1::2] = torch.tensor(np.cos(theta[:, 1::2]), dtype=torch.float32)
+        for name, p in self.named_parameters():  # position_embeddings.weight
+            if name == 'position_embeddings.weight':
+                p.requires_grad = False
+                with torch.no_grad():
+                    p.copy_(pp)
+                    # print_it(p, 'p')
+
+    def forward(self, input_ids):
+        seq_length = input_ids.size(1)  # 200
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
+        position_ids = position_ids.unsqueeze(0).expand_as(input_ids)  # (164, 200)
+        # Get word embeddings for each input id
+        word_embeddings = self.word_embeddings(input_ids)  # (bs, max_seq_length, dim) = (164, 200, 32)
+        # Get position embeddings for each position id
+        position_embeddings = self.position_embeddings(position_ids)  # (164, 200, 32)
+        # Add them both, then Layer norm
+        embeddings = word_embeddings + position_embeddings  # (bs, max_seq_length, dim) = (164, 200, 32)
+        embeddings = self.layer_norm(embeddings)
+        return embeddings
+
+
+########################################################################################################################
+class EncoderLayer(torch.nn.Module):
+    def __init__(self, d_model, num_heads, conv_hidden_dim, p=0.1):
+        super(EncoderLayer, self).__init__()
+        self.mha = MultiHeadAttention(d_model, num_heads, p)
+        self.cnn = CNN(d_model, conv_hidden_dim, p)
+        self.layernorm1 = torch.nn.LayerNorm(d_model, eps=1e-6)
+        self.layernorm2 = torch.nn.LayerNorm(d_model, eps=1e-6)
+
+    def forward(self, x):
+        # Multi-head attention
+        attn_out, _ = self.mha(x, x, x)   # (batch_size, input_seq_len, d_model)
+        # Layer norm after adding the residual connection
+        out1 = self.layernorm1(x + attn_out)  # (batch_size, input_seq_len, d_model)
+        # Feed forward
+        cnn_out = self.cnn(out1)   # (batch_size, input_seq_len, d_model)
+        # Second layer norm after adding residual connection
+        out2 = self.layernorm2(out1 + cnn_out)  # (batch_size, input_seq_len, d_model)
+        return out2
+
+
+########################################################################################################################
+class Encoder(torch.nn.Module):
+    def __init__(self, num_layers, d_model, num_heads, ff_hidden_dim, input_vocab_size, max_position_embeddings, p=0.1):
+        super(Encoder, self).__init__()
+        self.d_model = d_model
+        self.num_layers = num_layers
+        self.embedding = Embeddings(d_model, input_vocab_size, max_position_embeddings, p)
+
+        self.enc_layers = torch.nn.ModuleList()
+        for i in range(num_layers):
+            self.enc_layers.append(EncoderLayer(d_model, num_heads, ff_hidden_dim, p))
+
+    def forward(self, x):
+        x = self.embedding(x)    # Transform to (batch_size, input_seq_length, d_model)
+        for i in range(self.num_layers):
+            x = self.enc_layers[i](x)
+        return x    # # (batch_size, input_seq_len, d_model)
+
+
+########################################################################################################################
 def main_stupid1():
     """Test kvq selection"""
     print('haha')
@@ -131,6 +227,7 @@ def main_stupid2():
 ########################################################################################################################
 def main_stupid3():
     """We use legacy stuff, like in the notebook"""
+    # dataset + loaders
     import torchtext.legacy.data as data
     import torchtext.legacy.datasets as datasets
     max_len = 200
@@ -153,14 +250,29 @@ def main_stupid3():
     train_loader, valid_loader, test_loader = data.BucketIterator.splits((ds_train, ds_valid, ds_test),
                                                                          batch_size=batch_size,
                                                                          sort_key=lambda x: len(x.text), repeat=False)
+    # model etc
+    # model = MultiHeadAttention(d_model=32, num_heads=2)
+    # model = Embeddings(d_model=32, vocab_size=50002, max_position_embeddings=10000, p=0.1)
+    model = Encoder(num_layers=1, d_model=32, num_heads=2, ff_hidden_dim=128, input_vocab_size=50002, max_position_embeddings=10000)
+    model.to(device=DEVICE)
+
     if False:
         batch = next(iter(train_loader))
         print('batch:', type(batch), len(batch))
         x = batch.text
         y = batch.label
-        print_it(x, 'x')    # [164, 200]
-        print_it(y, 'y')    # [164]
+        print_it(x, 'x')  # [164, 200]
+        print_it(y, 'y')  # [164]
         print(y)
+
+    if True:
+        batch = next(iter(train_loader))
+        x = batch.text.to(DEVICE)
+        y = batch.label.to(DEVICE)
+        print_it(x, 'x')  # [164, 200]
+        print_it(y, 'y')  # [164]
+        out = model(x)
+        print_it(out, 'out')
 
 
 ########################################################################################################################
