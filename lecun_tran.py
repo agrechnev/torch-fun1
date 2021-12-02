@@ -46,21 +46,26 @@ class MultiHeadAttention(torch.nn.Module):
         self.w_h = torch.nn.Linear(d_model, d_model)
 
     def scaled_dot_product_attention(self, q, k, v):
+        # Inputs: (bs, n_heads, q_length, dim_per_head) = [164, 2, 200, 16]
         # batch_size = q.size(0)
         # k_length = k.size(-2)
         # Scaling by d_k so that the soft(arg)max doesnt saturate
-        q = q / np.sqrt(self.d_k)  # (bs, n_heads, q_length, dim_per_head)
-        scores = torch.matmul(q, k.transpose(2, 3))  # (bs, n_heads, q_length, k_length)
-        a = torch.nn.Softmax(dim=-1)(scores)  # (bs, n_heads, q_length, k_length)
+        # self.d_k == 16
+        q = q / np.sqrt(self.d_k)  # (bs, n_heads, q_length, dim_per_head) = [164, 2, 200, 16]
+        scores = torch.matmul(q, k.transpose(2, 3))  # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200], doubled 200 !
+        a = torch.nn.Softmax(dim=-1)(scores)  # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200]
+
         # Get the weighted average of the values
-        h = torch.matmul(a, v)
+        h = torch.matmul(a, v)    # [164, 2, 200, 16]
         return h, a
 
     def split_heads(self, x, batch_size):
         """
         Split the last dimension into (heads X depth)
-        Return after transpose to put in shape (batch_size X num_heads X seq_length X d_k)
+        Input: (batch_size X seq_length X d_model) = [164, 200, 32]
+        Return after transpose to put in shape (batch_size X num_heads X seq_length X d_k) = [164, 2, 200, 16]
         """
+        t = x.view(batch_size, -1, self.num_heads, self.d_k)
         return x.view(batch_size, -1, self.num_heads, self.d_k).transpose(1, 2)
 
     def group_heads(self, x, batch_size):
@@ -70,12 +75,14 @@ class MultiHeadAttention(torch.nn.Module):
         return x.transpose(1, 2).contiguous().view(batch_size, -1, self.num_heads * self.d_k)
 
     def forward(self, x_q, x_k, x_v):
+        # All inputs [164, 200, 32]
         batch_size, seq_length, dim = x_q.size()
 
         # After transforming, split into num_heads
-        q = self.split_heads(self.w_q(x_q), batch_size)  # (bs, n_heads, q_length, dim_per_head)
-        k = self.split_heads(self.w_k(x_k), batch_size)  # (bs, n_heads, k_length, dim_per_head)
-        v = self.split_heads(self.w_v(x_v), batch_size)  # (bs, n_heads, v_length, dim_per_head)
+        # Note: w_q does not change dim
+        q = self.split_heads(self.w_q(x_q), batch_size)  # (bs, n_heads, q_length, dim_per_head) = [164, 2, 200, 16]
+        k = self.split_heads(self.w_k(x_k), batch_size)  # (bs, n_heads, k_length, dim_per_head) = [164, 2, 200, 16]
+        v = self.split_heads(self.w_v(x_v), batch_size)  # (bs, n_heads, v_length, dim_per_head) = [164, 2, 200, 16]
 
         # Calculate the attention weights for each of the heads
         h_cat, a = self.scaled_dot_product_attention(q, k, v)
@@ -151,13 +158,15 @@ class EncoderLayer(torch.nn.Module):
 
     def forward(self, x):
         # Multi-head attention
-        attn_out, _ = self.mha(x, x, x)   # (batch_size, input_seq_len, d_model)
+        # (batch_size, input_seq_len, d_model) = [164, 200, 32]
+        # Size is not changed in here !
+        attn_out, _ = self.mha(x, x, x)   # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         # Layer norm after adding the residual connection
-        out1 = self.layernorm1(x + attn_out)  # (batch_size, input_seq_len, d_model)
+        out1 = self.layernorm1(x + attn_out)  # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         # Feed forward
-        cnn_out = self.cnn(out1)   # (batch_size, input_seq_len, d_model)
+        cnn_out = self.cnn(out1)   # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         # Second layer norm after adding residual connection
-        out2 = self.layernorm2(out1 + cnn_out)  # (batch_size, input_seq_len, d_model)
+        out2 = self.layernorm2(out1 + cnn_out)  # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         return out2
 
 
@@ -173,11 +182,11 @@ class Encoder(torch.nn.Module):
         for i in range(num_layers):
             self.enc_layers.append(EncoderLayer(d_model, num_heads, ff_hidden_dim, p))
 
-    def forward(self, x):
-        x = self.embedding(x)    # Transform to (batch_size, input_seq_length, d_model)
-        for i in range(self.num_layers):
+    def forward(self, x):   # Input:  (batch_size, input_seq_length) = [164, 200]
+        x = self.embedding(x)    # Transform to (batch_size, input_seq_length, d_model) = [164, 200, 32]
+        for i in range(self.num_layers):   # These layers do not change dimensions !
             x = self.enc_layers[i](x)
-        return x    # # (batch_size, input_seq_len, d_model)
+        return x    # # (batch_size, input_seq_len, d_model) = [164, 200, 32]
 
 
 ########################################################################################################################
