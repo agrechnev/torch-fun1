@@ -52,11 +52,12 @@ class MultiHeadAttention(torch.nn.Module):
         # Scaling by d_k so that the soft(arg)max doesnt saturate
         # self.d_k == 16
         q = q / np.sqrt(self.d_k)  # (bs, n_heads, q_length, dim_per_head) = [164, 2, 200, 16]
-        scores = torch.matmul(q, k.transpose(2, 3))  # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200], doubled 200 !
+        scores = torch.matmul(q, k.transpose(2,
+                                             3))  # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200], doubled 200 !
         a = torch.nn.Softmax(dim=-1)(scores)  # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200]
 
         # Get the weighted average of the values
-        h = torch.matmul(a, v)    # [164, 2, 200, 16]
+        h = torch.matmul(a, v)  # [164, 2, 200, 16]
         return h, a
 
     def split_heads(self, x, batch_size):
@@ -95,6 +96,7 @@ class MultiHeadAttention(torch.nn.Module):
 ########################################################################################################################
 class CNN(torch.nn.Module):
     """A simple MLP d_model -> d_model"""
+
     def __init__(self, d_model, hidden_dim, p):
         super(CNN, self).__init__()
         self.l1 = torch.nn.Linear(d_model, hidden_dim)
@@ -111,6 +113,7 @@ class CNN(torch.nn.Module):
 ########################################################################################################################
 class Embeddings(torch.nn.Module):
     """Returns learnable word emb + positional emb, of size d_model"""
+
     def __init__(self, d_model, vocab_size, max_position_embeddings, p):
         super().__init__()
         self.word_embeddings = torch.nn.Embedding(vocab_size, d_model, padding_idx=1)
@@ -160,11 +163,11 @@ class EncoderLayer(torch.nn.Module):
         # Multi-head attention
         # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         # Size is not changed in here !
-        attn_out, _ = self.mha(x, x, x)   # (batch_size, input_seq_len, d_model) = [164, 200, 32]
+        attn_out, _ = self.mha(x, x, x)  # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         # Layer norm after adding the residual connection
         out1 = self.layernorm1(x + attn_out)  # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         # Feed forward
-        cnn_out = self.cnn(out1)   # (batch_size, input_seq_len, d_model) = [164, 200, 32]
+        cnn_out = self.cnn(out1)  # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         # Second layer norm after adding residual connection
         out2 = self.layernorm2(out1 + cnn_out)  # (batch_size, input_seq_len, d_model) = [164, 200, 32]
         return out2
@@ -182,11 +185,27 @@ class Encoder(torch.nn.Module):
         for i in range(num_layers):
             self.enc_layers.append(EncoderLayer(d_model, num_heads, ff_hidden_dim, p))
 
-    def forward(self, x):   # Input:  (batch_size, input_seq_length) = [164, 200]
-        x = self.embedding(x)    # Transform to (batch_size, input_seq_length, d_model) = [164, 200, 32]
-        for i in range(self.num_layers):   # These layers do not change dimensions !
+    def forward(self, x):  # Input:  (batch_size, input_seq_length) = [164, 200]
+        x = self.embedding(x)  # Transform to (batch_size, input_seq_length, d_model) = [164, 200, 32]
+        for i in range(self.num_layers):  # These layers do not change dimensions !
             x = self.enc_layers[i](x)
-        return x    # # (batch_size, input_seq_len, d_model) = [164, 200, 32]
+        return x  # # (batch_size, input_seq_len, d_model) = [164, 200, 32]
+
+
+########################################################################################################################
+class TransformerClassifier(torch.nn.Module):
+    def __init__(self, num_layers=1, d_model=32, num_heads=2, conv_hidden_dim=128, input_vocab_size=50002,
+                 num_answers=2):
+        super(TransformerClassifier, self).__init__()
+        self.encoder = Encoder(num_layers, d_model, num_heads, conv_hidden_dim, input_vocab_size,
+                               max_position_embeddings=10000)
+        self.dense = torch.nn.Linear(d_model, num_answers)
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x, _ = torch.max(x, dim=1)
+        x = self.dense(x)
+        return x
 
 
 ########################################################################################################################
@@ -262,7 +281,9 @@ def main_stupid3():
     # model etc
     # model = MultiHeadAttention(d_model=32, num_heads=2)
     # model = Embeddings(d_model=32, vocab_size=50002, max_position_embeddings=10000, p=0.1)
-    model = Encoder(num_layers=1, d_model=32, num_heads=2, ff_hidden_dim=128, input_vocab_size=50002, max_position_embeddings=10000)
+    # model = Encoder(num_layers=1, d_model=32, num_heads=2, ff_hidden_dim=128, input_vocab_size=50002,
+    #                 max_position_embeddings=10000)
+    model = TransformerClassifier()
     model.to(device=DEVICE)
 
     if False:
