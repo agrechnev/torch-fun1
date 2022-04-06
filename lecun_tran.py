@@ -3,6 +3,7 @@
 # And try to solve the issues with torchtext version incompatibilities
 
 import sys
+import tqdm
 
 import numpy as np
 import torch
@@ -239,17 +240,23 @@ def main_stupid1():
 ########################################################################################################################
 def main_stupid2():
     """This time, the dataset. Cannot understand the new torchtext!"""
-    dset_train, dset_val = torchtext.datasets.IMDB(root='/home/seymour/data')
+    dset_train, dset_val = torchtext.datasets.IMDB(root='/home/seymour/data/IMDB')
     print('dset_train', len(dset_train))
     print('dset_val', len(dset_val))
+
     batch_size = 164
     loader_train = torch.utils.data.DataLoader(dset_train, batch_size=batch_size)
     loader_val = torch.utils.data.DataLoader(dset_val, batch_size=batch_size)
     print('loader_train', len(loader_train))
     print('loader_val', len(loader_val))
-    # x, y = next(iter(loader_val))
-    for x, y in loader_train:
-        print('x=', x)
+    x, y = next(iter(loader_val))
+    print('x', type(x), len(x))
+    print('y', type(y), len(y))
+    x0, y0 = x[0], y[0]
+    print('x0', type(x0), x0)
+    print('y0', type(y0), y0)
+    # for x, y in loader_train:
+    #     print('x=', x)
 
 
 ########################################################################################################################
@@ -294,6 +301,7 @@ def main_stupid3():
         print_it(x, 'x')  # [164, 200]
         print_it(y, 'y')  # [164]
         print(y)
+        print(x[0])
 
     if True:
         batch = next(iter(train_loader))
@@ -306,5 +314,82 @@ def main_stupid3():
 
 
 ########################################################################################################################
+class Trainer:
+    def __init__(self):
+        # dataset + loaders
+        import torchtext.legacy.data as data
+        import torchtext.legacy.datasets as datasets
+        max_len = 200
+        text = data.Field(sequential=True, fix_length=max_len, batch_first=True, lower=True, dtype=torch.long)
+        label = data.LabelField(sequential=False, dtype=torch.long)
+        ds_train, ds_test = datasets.IMDB.splits(text, label, path='/home/seymour/data/IMDB/aclImdb')
+        print('train.fields :', ds_train.fields)
+        ds_train, ds_valid = ds_train.split(0.9)
+        print('train : ', len(ds_train))
+        print('valid : ', len(ds_valid))
+        print('test : ', len(ds_test))
+        num_words = 50000
+        text.build_vocab(ds_train, max_size=num_words)
+        label.build_vocab(ds_train)
+        vocab = text.vocab
+        batch_size = 164
+        self.train_loader, self.valid_loader, self.test_loader = data.BucketIterator.splits(
+            (ds_train, ds_valid, ds_test),
+            batch_size=batch_size,
+            sort_key=lambda x: len(x.text),
+            repeat=False)
+        print('train_loader : ', len(self.train_loader))
+        print('valid_loader : ', len(self.valid_loader))
+        print('test_loader : ', len(self.test_loader))
+        # model etc
+        self.model = TransformerClassifier().to(device=DEVICE)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=0.001)
+
+    def val(self, loader, name: str = 'val'):
+        self.model.eval()
+        loss_val = 0.0
+        acc_val = 0.0
+        for batch in loader:
+            x = batch.text.to(DEVICE)
+            y = batch.label.to(DEVICE)
+            with torch.no_grad():
+                out = self.model(x)
+            loss = torch.nn.functional.cross_entropy(out, y)
+            loss_val += loss.item()
+            acc_val += (out.argmax(1) == y).cpu().numpy().mean()
+        loss_val /= len(loader)
+        acc_val /= len(loader)
+        print(f'{name} loss={loss_val}, acc={acc_val}')
+
+    def train(self):
+        epochs = 10
+        for epoch in range(epochs):
+            self.model.train()
+            loss_train = 0.0
+            acc_train = 0.0
+            for batch in self.train_loader:
+                x = batch.text.to(DEVICE)
+                y = batch.label.to(DEVICE)
+                self.optimizer.zero_grad()
+                out = self.model(x)
+                loss = torch.nn.functional.cross_entropy(out, y)
+                loss.backward()
+                loss_train += loss.item()
+                acc_train += (out.argmax(1) == y).cpu().numpy().mean()
+                self.optimizer.step()
+            loss_train /= len(self.train_loader)
+            acc_train /= len(self.train_loader)
+            print(f'epoch {epoch} : loss_train={loss_train}, acc_train={acc_train}')
+            self.val(self.valid_loader)
+        self.val(self.test_loader, 'TEST')
+
+
+########################################################################################################################
+def main():
+    trainer = Trainer()
+    trainer.train()
+
+
+########################################################################################################################
 if __name__ == '__main__':
-    main_stupid3()
+    main()
