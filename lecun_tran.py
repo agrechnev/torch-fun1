@@ -53,8 +53,8 @@ class MultiHeadAttention(torch.nn.Module):
         # Scaling by d_k so that the soft(arg)max doesnt saturate
         # self.d_k == 16
         q = q / np.sqrt(self.d_k)  # (bs, n_heads, q_length, dim_per_head) = [164, 2, 200, 16]
-        scores = torch.matmul(q, k.transpose(2,
-                                             3))  # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200], doubled 200 !
+        scores = torch.matmul(q, k.transpose(2, 3))
+        # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200], doubled 200 !
         a = torch.nn.Softmax(dim=-1)(scores)  # (bs, n_heads, q_length, k_length) = [164, 2, 200, 200]
 
         # Get the weighted average of the values
@@ -67,7 +67,7 @@ class MultiHeadAttention(torch.nn.Module):
         Input: (batch_size X seq_length X d_model) = [164, 200, 32]
         Return after transpose to put in shape (batch_size X num_heads X seq_length X d_k) = [164, 2, 200, 16]
         """
-        t = x.view(batch_size, -1, self.num_heads, self.d_k)
+        # t = x.view(batch_size, -1, self.num_heads, self.d_k)
         return x.view(batch_size, -1, self.num_heads, self.d_k).transpose(1, 2)
 
     def group_heads(self, x, batch_size):
@@ -213,7 +213,7 @@ class TransformerClassifier(torch.nn.Module):
 def main_stupid1():
     """Test kvq selection"""
     print('haha')
-    mha = MultiHeadAttention(512, 8)
+    mha = MultiHeadAttention(512, 8, 0.)
     k = torch.tensor(
         [[10, 0, 0],
          [0, 10, 0],
@@ -367,7 +367,7 @@ class Trainer:
             self.model.train()
             loss_train = 0.0
             acc_train = 0.0
-            for batch in self.train_loader:
+            for batch in tqdm.tqdm(self.train_loader):
                 x = batch.text.to(DEVICE)
                 y = batch.label.to(DEVICE)
                 self.optimizer.zero_grad()
@@ -393,3 +393,4 @@ def main():
 ########################################################################################################################
 if __name__ == '__main__':
     main()
+    # main_stupid1()
